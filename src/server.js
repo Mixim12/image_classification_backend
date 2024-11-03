@@ -28,7 +28,7 @@ fastify.register(multipart, {
 });
 
 fastify.register(cors, {
-  origin: "http://localhost:8080", // Your Vue.js frontend URL
+  origin: "http://localhost:8080",
   methods: ["GET", "POST"],
 });
 
