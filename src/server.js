@@ -4,23 +4,22 @@ const fastify = require("fastify")({ logger: true });
 const multipart = require("@fastify/multipart");
 const ort = require("onnxruntime-node");
 const { preprocessImage } = require("./helper/image_preprocessing");
-const cors = require("@fastify/cors");
-const { log } = require("console");
+const { getTopNPredictions, loadMapping, getNamesFromTopPredictions } = require("./helper/prediction_sort");
 
-// Read configuration from the INI file
+const cors = require("@fastify/cors");
+
 const config = ini.parse(fs.readFileSync("config.ini", "utf-8"));
 
-// Parse server configuration
 const serverPort = parseInt(config.server.port, 10) || 3000;
 const serverHost = config.server.host || "0.0.0.0";
 
-// Parse model configuration
 const modelPath = config.model.model_path || "./model.onnx";
+const indexClassesPath = config.model.classes_path;
 
-// Parse limits configuration
+const mapping = loadMapping(indexClassesPath);
+
 const fileSizeLimit = parseInt(config.limits.file_size, "10") || 5 * 1024 * 1024; // Default to 5 MB
-console.log(fileSizeLimit);
-// Register multipart with limits
+
 fastify.register(multipart, {
   limits: {
     fileSize: fileSizeLimit,
@@ -32,7 +31,6 @@ fastify.register(cors, {
   methods: ["GET", "POST"],
 });
 
-// Load the ONNX model
 let session;
 
 (async () => {
@@ -62,7 +60,7 @@ fastify.post("/predict", async (request, reply) => {
 
     const inputName = session.inputNames[0];
     // Prepare model input
-    const feeds = { [inputName]: inputTensor }; // 'input' should match your model's input name
+    const feeds = { [inputName]: inputTensor };
 
     // Run inference
     const results = await session.run(feeds);
@@ -70,8 +68,13 @@ fastify.post("/predict", async (request, reply) => {
     const outputName = session.outputNames[0];
 
     // Retrieve and send the prediction
-    const outputTensor = results[outputName]; // 'output' should match your model's output name
-    reply.send({ prediction: outputTensor.data });
+    const outputPredictions = results[outputName];
+
+    const bestNPredictions = getTopNPredictions(outputPredictions.data, 5);
+
+    const predictions = getNamesFromTopPredictions(bestNPredictions, mapping);
+
+    reply.send({ prediction: predictions });
   } catch (error) {
     fastify.log.error(error);
     reply.status(500).send({ error: "Prediction failed", details: error.message });
